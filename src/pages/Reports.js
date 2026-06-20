@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { inventoryAPI, productAPI, warehouseAPI } from '../services/api';
 
 const Reports = () => {
@@ -11,12 +11,6 @@ const Reports = () => {
     date_from: '',
     date_to: ''
   });
-
-  useEffect(() => {
-    fetchProducts();
-    fetchWarehouses();
-    generateReport();
-  }, [reportType]);
 
   const fetchProducts = async () => {
     try {
@@ -36,7 +30,7 @@ const Reports = () => {
     }
   };
 
-  const generateReport = async () => {
+  const generateReport = useCallback(async () => {
     try {
       const inventoryResponse = await inventoryAPI.getAll();
       const inventory = inventoryResponse.data;
@@ -46,14 +40,31 @@ const Reports = () => {
           const product = products.find(p => p.id === item.product_id);
           return product && item.stock_level < product.min_stock_level;
         });
+
         setReportData(lowStockItems);
-      } else if (reportType === 'stock-levels') {
+      } else {
         setReportData(inventory);
       }
     } catch (error) {
       console.error('Error generating report:', error);
     }
-  };
+  }, [reportType, products]);
+
+  // Load initial data
+  useEffect(() => {
+    const loadData = async () => {
+      await Promise.all([fetchProducts(), fetchWarehouses()]);
+    };
+
+    loadData();
+  }, []);
+
+  // Generate report whenever report type or products change
+  useEffect(() => {
+    if (products.length > 0) {
+      generateReport();
+    }
+  }, [generateReport, products]);
 
   const getProductName = (productId) => {
     const product = products.find(p => p.id === productId);
@@ -66,12 +77,14 @@ const Reports = () => {
   };
 
   const exportToCSV = () => {
-    const headers = reportType === 'low-stock' 
-      ? ['Product', 'Warehouse', 'Current Stock', 'Min Level', 'Shortage']
-      : ['Product', 'Warehouse', 'Stock Level'];
+    const headers =
+      reportType === 'low-stock'
+        ? ['Product', 'Warehouse', 'Current Stock', 'Min Level', 'Shortage']
+        : ['Product', 'Warehouse', 'Stock Level'];
 
     const csvData = reportData.map(item => {
       const product = products.find(p => p.id === item.product_id);
+
       const baseData = [
         getProductName(item.product_id),
         getWarehouseName(item.warehouse_id),
@@ -85,6 +98,7 @@ const Reports = () => {
           (product?.min_stock_level || 0) - item.stock_level
         ];
       }
+
       return baseData;
     });
 
@@ -107,7 +121,9 @@ const Reports = () => {
       <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow mb-6">
         <div className="flex flex-wrap items-center gap-4 mb-4">
           <div>
-            <label className="block text-sm font-medium mb-2 dark:text-white">Report Type</label>
+            <label className="block text-sm font-medium mb-2 dark:text-white">
+              Report Type
+            </label>
             <select
               value={reportType}
               onChange={(e) => setReportType(e.target.value)}
@@ -117,21 +133,31 @@ const Reports = () => {
               <option value="stock-levels">Current Stock Levels</option>
             </select>
           </div>
+
           <div>
-            <label className="block text-sm font-medium mb-2 dark:text-white">Warehouse</label>
+            <label className="block text-sm font-medium mb-2 dark:text-white">
+              Warehouse
+            </label>
             <select
               value={filters.warehouse_id}
-              onChange={(e) => setFilters({...filters, warehouse_id: e.target.value})}
+              onChange={(e) =>
+                setFilters({
+                  ...filters,
+                  warehouse_id: e.target.value
+                })
+              }
               className="p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             >
               <option value="">All Warehouses</option>
-              {warehouses.map(warehouse => (
+
+              {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>
                   {warehouse.name}
                 </option>
               ))}
             </select>
           </div>
+
           <div className="flex items-end">
             <button
               onClick={generateReport}
@@ -139,6 +165,7 @@ const Reports = () => {
             >
               Generate Report
             </button>
+
             <button
               onClick={exportToCSV}
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
@@ -152,53 +179,87 @@ const Reports = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
         <div className="p-4 bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
           <h2 className="text-lg font-semibold dark:text-white">
-            {reportType === 'low-stock' ? 'Low Stock Items' : 'Current Stock Levels'}
+            {reportType === 'low-stock'
+              ? 'Low Stock Items'
+              : 'Current Stock Levels'}
           </h2>
+
           <p className="text-sm text-gray-600 dark:text-gray-300">
             Total items: {reportData.length}
           </p>
         </div>
+
         <div className="overflow-x-auto">
           <table className="w-full table-auto">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
                 <th className="px-4 py-3 text-left dark:text-white">Product</th>
                 <th className="px-4 py-3 text-left dark:text-white">Warehouse</th>
-                <th className="px-4 py-3 text-left dark:text-white">Current Stock</th>
+                <th className="px-4 py-3 text-left dark:text-white">
+                  Current Stock
+                </th>
+
                 {reportType === 'low-stock' && (
                   <>
-                    <th className="px-4 py-3 text-left dark:text-white">Min Level</th>
-                    <th className="px-4 py-3 text-left dark:text-white">Shortage</th>
+                    <th className="px-4 py-3 text-left dark:text-white">
+                      Min Level
+                    </th>
+
+                    <th className="px-4 py-3 text-left dark:text-white">
+                      Shortage
+                    </th>
                   </>
                 )}
               </tr>
             </thead>
+
             <tbody>
               {reportData
-                .filter(item => !filters.warehouse_id || item.warehouse_id.toString() === filters.warehouse_id)
+                .filter(
+                  (item) =>
+                    !filters.warehouse_id ||
+                    item.warehouse_id.toString() === filters.warehouse_id
+                )
                 .map((item, index) => {
-                  const product = products.find(p => p.id === item.product_id);
+                  const product = products.find(
+                    (p) => p.id === item.product_id
+                  );
+
                   return (
                     <tr key={index} className="border-t dark:border-gray-600">
-                      <td className="px-4 py-3 dark:text-white">{getProductName(item.product_id)}</td>
-                      <td className="px-4 py-3 dark:text-white">{getWarehouseName(item.warehouse_id)}</td>
-                      <td className={`px-4 py-3 font-semibold ${
-                        reportType === 'low-stock' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
-                      }`}>
+                      <td className="px-4 py-3 dark:text-white">
+                        {getProductName(item.product_id)}
+                      </td>
+
+                      <td className="px-4 py-3 dark:text-white">
+                        {getWarehouseName(item.warehouse_id)}
+                      </td>
+
+                      <td
+                        className={`px-4 py-3 font-semibold ${
+                          reportType === 'low-stock'
+                            ? 'text-red-600 dark:text-red-400'
+                            : 'text-green-600 dark:text-green-400'
+                        }`}
+                      >
                         {item.stock_level}
                       </td>
+
                       {reportType === 'low-stock' && (
                         <>
-                          <td className="px-4 py-3 dark:text-white">{product?.min_stock_level || 0}</td>
+                          <td className="px-4 py-3 dark:text-white">
+                            {product?.min_stock_level || 0}
+                          </td>
+
                           <td className="px-4 py-3 text-red-600 dark:text-red-400 font-semibold">
-                            {(product?.min_stock_level || 0) - item.stock_level}
+                            {(product?.min_stock_level || 0) -
+                              item.stock_level}
                           </td>
                         </>
                       )}
                     </tr>
                   );
-                })
-              }
+                })}
             </tbody>
           </table>
         </div>
