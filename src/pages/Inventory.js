@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { inventoryAPI, productAPI, warehouseAPI } from '../services/api';
 import { getUserRole } from '../utils/auth';
+import { Badge, Button, DataTable, Input, Modal, Select, useToast } from '../components/ui';
 
 const Inventory = () => {
   const [inventory, setInventory] = useState([]);
@@ -8,75 +9,75 @@ const Inventory = () => {
   const [warehouses, setWarehouses] = useState([]);
   const [showStockForm, setShowStockForm] = useState(false);
   const [stockFormType, setStockFormType] = useState('in');
-  const [formData, setFormData] = useState({
-    product_id: '',
-    warehouse_id: '',
-    quantity: ''
-  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [warehouseFilter, setWarehouseFilter] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({ product_id: '', warehouse_id: '', quantity: '' });
   const userRole = getUserRole();
   const canAdjustStock = userRole === 'EMPLOYEE' || userRole === 'ADMIN';
+  const toast = useToast();
 
-  useEffect(() => {
-    fetchInventory();
-    fetchProducts();
-    fetchWarehouses();
-  }, []);
-
-  const fetchInventory = async () => {
+  const fetchInventory = useCallback(async () => {
+    setLoading(true);
     try {
       const response = await inventoryAPI.getAll();
       setInventory(response.data);
     } catch (error) {
       console.error('Error fetching inventory:', error);
+      toast('Unable to load inventory', 'error');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const response = await productAPI.getAll();
       setProducts(response.data);
     } catch (error) {
       console.error('Error fetching products:', error);
     }
-  };
+  }, []);
 
-  const fetchWarehouses = async () => {
+  const fetchWarehouses = useCallback(async () => {
     try {
       const response = await warehouseAPI.getAll();
       setWarehouses(response.data);
     } catch (error) {
       console.error('Error fetching warehouses:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchInventory();
+    fetchProducts();
+    fetchWarehouses();
+  }, [fetchInventory, fetchProducts, fetchWarehouses]);
 
   const handleStockAdjustment = async (e) => {
     e.preventDefault();
+    setSaving(true);
     try {
-      const adjustmentData = {
-        ...formData,
-        quantity: parseInt(formData.quantity)
-      };
-
+      const adjustmentData = { ...formData, quantity: parseInt(formData.quantity, 10) };
       if (stockFormType === 'in') {
         await inventoryAPI.stockIn(adjustmentData);
       } else {
         await inventoryAPI.stockOut(adjustmentData);
       }
-
+      toast(stockFormType === 'in' ? 'Stock added' : 'Stock removed');
       fetchInventory();
       resetForm();
     } catch (error) {
       console.error('Error adjusting stock:', error);
-      alert('Error adjusting stock. Please check the quantity and try again.');
+      toast('Error adjusting stock. Please check the quantity and try again.', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
   const resetForm = () => {
-    setFormData({
-      product_id: '',
-      warehouse_id: '',
-      quantity: ''
-    });
+    setFormData({ product_id: '', warehouse_id: '', quantity: '' });
     setShowStockForm(false);
   };
 
@@ -85,161 +86,77 @@ const Inventory = () => {
     setShowStockForm(true);
   };
 
-  const getProductName = (productId) => {
-    const product = products.find(p => p.id === productId);
-    return product ? product.name : 'Unknown';
-  };
+  const enrichedInventory = useMemo(() => inventory.map((item) => {
+    const product = products.find((p) => p.id === item.product_id);
+    const warehouse = warehouses.find((w) => w.id === item.warehouse_id);
+    const status = !product || item.stock_level <= 0 ? 'out' : item.stock_level < product.min_stock_level ? 'low' : 'in';
+    return { ...item, id: `${item.product_id}-${item.warehouse_id}`, productName: product?.name || 'Unknown', sku: product?.sku || 'N/A', minLevel: product?.min_stock_level || 0, warehouseName: warehouse?.name || 'Unknown', status };
+  }).filter((item) => {
+    const matchesSearch = `${item.productName} ${item.sku} ${item.warehouseName}`.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesWarehouse = !warehouseFilter || item.warehouse_id.toString() === warehouseFilter;
+    return matchesSearch && matchesWarehouse;
+  }), [inventory, products, warehouses, searchTerm, warehouseFilter]);
 
-  const getWarehouseName = (warehouseId) => {
-    const warehouse = warehouses.find(w => w.id === warehouseId);
-    return warehouse ? warehouse.name : 'Unknown';
-  };
-
-  const getStockStatus = (item) => {
-    const product = products.find(p => p.id === item.product_id);
-    if (!product) return 'normal';
-    return item.stock_level < product.min_stock_level ? 'low' : 'normal';
+  const statusBadge = (status) => {
+    if (status === 'out') return <Badge tone="red">Out of Stock</Badge>;
+    if (status === 'low') return <Badge tone="orange">Low Stock</Badge>;
+    return <Badge tone="green">In Stock</Badge>;
   };
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Inventory</h1>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Operations</p>
+          <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
+        </div>
         {canAdjustStock && (
-          <div className="space-x-2">
-            <button
-              onClick={() => openStockForm('in')}
-              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-            >
-              Stock In
-            </button>
-            <button
-              onClick={() => openStockForm('out')}
-              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-            >
-              Stock Out
-            </button>
+          <div className="flex gap-2">
+            <Button type="button" variant="success" icon="plus" onClick={() => openStockForm('in')}>Stock In</Button>
+            <Button type="button" variant="danger" icon="arrowDown" onClick={() => openStockForm('out')}>Stock Out</Button>
           </div>
         )}
       </div>
 
-      {showStockForm && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow mb-6">
-          <h2 className="text-xl font-bold mb-4 dark:text-white">
-            {stockFormType === 'in' ? 'Stock In' : 'Stock Out'}
-          </h2>
-          <form onSubmit={handleStockAdjustment} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 dark:text-white">Product</label>
-              <select
-                value={formData.product_id}
-                onChange={(e) => setFormData({...formData, product_id: e.target.value})}
-                className="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                required
-              >
-                <option value="">Select Product</option>
-                {products.map(product => (
-                  <option key={product.id} value={product.id}>
-                    {product.name} ({product.sku})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 dark:text-white">Warehouse</label>
-              <select
-                value={formData.warehouse_id}
-                onChange={(e) => setFormData({...formData, warehouse_id: e.target.value})}
-                className="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                required
-              >
-                <option value="">Select Warehouse</option>
-                {warehouses.map(warehouse => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 dark:text-white">Quantity</label>
-              <input
-                type="number"
-                value={formData.quantity}
-                onChange={(e) => setFormData({...formData, quantity: e.target.value})}
-                className="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                min="1"
-                required
-              />
-            </div>
-            <div className="md:col-span-3 flex space-x-2">
-              <button
-                type="submit"
-                className={`px-4 py-2 rounded text-white ${
-                  stockFormType === 'in' 
-                    ? 'bg-green-600 hover:bg-green-700' 
-                    : 'bg-red-600 hover:bg-red-700'
-                }`}
-              >
-                {stockFormType === 'in' ? 'Add Stock' : 'Remove Stock'}
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <DataTable
+        columns={[
+          { key: 'productName', header: 'Product', render: (item) => <div><p className="font-semibold text-slate-950 dark:text-white">{item.productName}</p><p className="text-xs text-slate-500">{item.sku}</p></div> },
+          { key: 'warehouseName', header: 'Warehouse' },
+          { key: 'stock_level', header: 'Stock Level', render: (item) => <span className="font-semibold">{item.stock_level}</span> },
+          { key: 'minLevel', header: 'Min Level' },
+          { key: 'status', header: 'Status', render: (item) => statusBadge(item.status) },
+        ]}
+        data={enrichedInventory}
+        loading={loading}
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        filters={(
+          <Select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)} className="w-48">
+            <option value="">All Warehouses</option>
+            {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+          </Select>
+        )}
+        emptyMessage="No inventory records found."
+      />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full table-auto">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left dark:text-white">Product</th>
-                <th className="px-4 py-3 text-left dark:text-white">SKU</th>
-                <th className="px-4 py-3 text-left dark:text-white">Warehouse</th>
-                <th className="px-4 py-3 text-left dark:text-white">Stock Level</th>
-                <th className="px-4 py-3 text-left dark:text-white">Min Level</th>
-                <th className="px-4 py-3 text-left dark:text-white">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inventory.map(item => {
-                const product = products.find(p => p.id === item.product_id);
-                const status = getStockStatus(item);
-                return (
-                  <tr key={`${item.product_id}-${item.warehouse_id}`} className="border-t dark:border-gray-600">
-                    <td className="px-4 py-3 dark:text-white">{getProductName(item.product_id)}</td>
-                    <td className="px-4 py-3 dark:text-white">{product?.sku || 'N/A'}</td>
-                    <td className="px-4 py-3 dark:text-white">{getWarehouseName(item.warehouse_id)}</td>
-                    <td className={`px-4 py-3 font-semibold ${
-                      status === 'low' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
-                    }`}>
-                      {item.stock_level}
-                    </td>
-                    <td className="px-4 py-3 dark:text-white">{product?.min_stock_level || 'N/A'}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                        status === 'low' 
-                          ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' 
-                          : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      }`}>
-                        {status === 'low' ? 'Low Stock' : 'Normal'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })
-            }
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Modal open={showStockForm} title={stockFormType === 'in' ? 'Stock In' : 'Stock Out'} onClose={resetForm} footer={(
+        <>
+          <Button type="button" variant="secondary" onClick={resetForm}>Cancel</Button>
+          <Button type="submit" form="stock-form" variant={stockFormType === 'in' ? 'success' : 'danger'} disabled={saving}>{saving ? 'Processing...' : stockFormType === 'in' ? 'Add Stock' : 'Remove Stock'}</Button>
+        </>
+      )}>
+        <form id="stock-form" onSubmit={handleStockAdjustment} className="space-y-4">
+          <Select label="Product" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required>
+            <option value="">Select Product</option>
+            {products.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.sku})</option>)}
+          </Select>
+          <Select label="Warehouse" value={formData.warehouse_id} onChange={(e) => setFormData({ ...formData, warehouse_id: e.target.value })} required>
+            <option value="">Select Warehouse</option>
+            {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+          </Select>
+          <Input label="Quantity" type="number" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} min="1" required />
+        </form>
+      </Modal>
     </div>
   );
 };

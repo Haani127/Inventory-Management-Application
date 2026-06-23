@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { isAuthenticated } from './utils/auth';
 import { ThemeProvider } from './context/ThemeContext';
+import { ToastProvider } from './components/ui';
 
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -25,6 +26,7 @@ function App() {
 
   return (
     <ThemeProvider>
+      <ToastProvider>
       <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Routes>
         <Route 
@@ -101,6 +103,7 @@ function App() {
         />
       </Routes>
       </Router>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

@@ -2,6 +2,7 @@ package com.inventory.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -30,8 +31,10 @@ public class SecurityConfig {
             .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             .and()
             .authorizeHttpRequests(authz -> authz
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
-                .requestMatchers("/api/warehouses/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/warehouses", "/api/warehouses/**").authenticated()
+                .requestMatchers("/api/warehouses", "/api/warehouses/**").hasRole("ADMIN")
                 .requestMatchers("/api/suppliers/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers("/api/products/**").hasAnyRole("ADMIN", "MANAGER", "EMPLOYEE")
                 .requestMatchers("/api/inventory/**").hasAnyRole("ADMIN", "MANAGER", "EMPLOYEE")
@@ -50,7 +53,10 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
+        configuration.setAllowedOrigins(Arrays.asList(
+            "http://localhost:3000",
+            "http://localhost:3001"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);

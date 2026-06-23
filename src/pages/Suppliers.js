@@ -1,41 +1,55 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supplierAPI } from '../services/api';
+import { Button, DataTable, Icon, Input, Modal, useToast } from '../components/ui';
+
+const emptyForm = { name: '', contact_person: '', email: '' };
 
 const Suppliers = () => {
   const [suppliers, setSuppliers] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    contact_person: '',
-    email: ''
-  });
+  const [deleteId, setDeleteId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState(emptyForm);
+  const toast = useToast();
 
-  useEffect(() => {
-    fetchSuppliers();
-  }, []);
-
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = useCallback(async () => {
+    setLoading(true);
     try {
       const response = await supplierAPI.getAll();
       setSuppliers(response.data);
     } catch (error) {
       console.error('Error fetching suppliers:', error);
+      toast('Unable to load suppliers', 'error');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchSuppliers();
+  }, [fetchSuppliers]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaving(true);
     try {
       if (editingSupplier) {
         await supplierAPI.update(editingSupplier.id, formData);
+        toast('Supplier updated');
       } else {
         await supplierAPI.create(formData);
+        toast('Supplier created');
       }
       fetchSuppliers();
       resetForm();
     } catch (error) {
       console.error('Error saving supplier:', error);
+      toast('Unable to save supplier', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -45,131 +59,79 @@ const Suppliers = () => {
     setShowForm(true);
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this supplier?')) {
-      try {
-        await supplierAPI.delete(id);
-        fetchSuppliers();
-      } catch (error) {
-        console.error('Error deleting supplier:', error);
-      }
+  const handleDelete = async () => {
+    try {
+      await supplierAPI.delete(deleteId);
+      toast('Supplier deleted');
+      fetchSuppliers();
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      toast('Unable to delete supplier', 'error');
+    } finally {
+      setDeleteId(null);
     }
   };
 
   const resetForm = () => {
-    setFormData({
-      name: '',
-      contact_person: '',
-      email: ''
-    });
+    setFormData(emptyForm);
     setEditingSupplier(null);
     setShowForm(false);
   };
 
+  const filteredSuppliers = useMemo(() => suppliers.filter((supplier) =>
+    `${supplier.name} ${supplier.contact_person} ${supplier.email}`.toLowerCase().includes(searchTerm.toLowerCase())
+  ), [suppliers, searchTerm]);
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Suppliers</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-        >
-          Add Supplier
-        </button>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Procurement</p>
+          <h1 className="text-3xl font-bold tracking-tight">Suppliers</h1>
+        </div>
+        <Button type="button" icon="plus" onClick={() => setShowForm(true)}>Add Supplier</Button>
       </div>
 
-      {showForm && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow mb-6">
-          <h2 className="text-xl font-bold mb-4 dark:text-white">
-            {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
-          </h2>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 dark:text-white">Name</label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({...formData, name: e.target.value})}
-                className="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                required
-              />
+      <DataTable
+        columns={[
+          { key: 'name', header: 'Name', render: (supplier) => <span className="font-semibold text-slate-950 dark:text-white">{supplier.name}</span> },
+          { key: 'contact_person', header: 'Contact Person' },
+          { key: 'email', header: 'Email', render: (supplier) => <a className="text-slate-700 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white" href={`mailto:${supplier.email}`}>{supplier.email}</a> },
+          { key: 'actions', header: 'Actions', sortable: false, render: (supplier) => (
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" size="icon" title="Edit supplier" onClick={() => handleEdit(supplier)}><Icon name="edit" /></Button>
+              <Button type="button" variant="ghost" size="icon" title="Delete supplier" onClick={() => setDeleteId(supplier.id)}><Icon name="trash" /></Button>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 dark:text-white">Contact Person</label>
-              <input
-                type="text"
-                value={formData.contact_person}
-                onChange={(e) => setFormData({...formData, contact_person: e.target.value})}
-                className="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                required
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-2 dark:text-white">Email</label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
-                className="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                required
-              />
-            </div>
-            <div className="md:col-span-2 flex space-x-2">
-              <button
-                type="submit"
-                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-              >
-                {editingSupplier ? 'Update' : 'Create'}
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+          ) },
+        ]}
+        data={filteredSuppliers}
+        loading={loading}
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        emptyMessage="No suppliers found."
+      />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full table-auto">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left dark:text-white">Name</th>
-                <th className="px-4 py-3 text-left dark:text-white">Contact Person</th>
-                <th className="px-4 py-3 text-left dark:text-white">Email</th>
-                <th className="px-4 py-3 text-left dark:text-white">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {suppliers.map(supplier => (
-                <tr key={supplier.id} className="border-t dark:border-gray-600">
-                  <td className="px-4 py-3 dark:text-white">{supplier.name}</td>
-                  <td className="px-4 py-3 dark:text-white">{supplier.contact_person}</td>
-                  <td className="px-4 py-3 dark:text-white">{supplier.email}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleEdit(supplier)}
-                      className="bg-yellow-500 text-white px-2 py-1 rounded mr-2 hover:bg-yellow-600"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(supplier.id)}
-                      className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Modal open={showForm} title={editingSupplier ? 'Edit Supplier' : 'Add Supplier'} onClose={resetForm} footer={(
+        <>
+          <Button type="button" variant="secondary" onClick={resetForm}>Cancel</Button>
+          <Button type="submit" form="supplier-form" disabled={saving}>{saving ? 'Saving...' : editingSupplier ? 'Update' : 'Create'}</Button>
+        </>
+      )}>
+        <form id="supplier-form" onSubmit={handleSubmit} className="space-y-4">
+          <Input label="Name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
+          <Input label="Contact Person" value={formData.contact_person} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} required />
+          <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
+        </form>
+      </Modal>
+
+      <Modal open={Boolean(deleteId)} title="Delete Supplier" onClose={() => setDeleteId(null)} footer={(
+        <>
+          <Button type="button" variant="secondary" onClick={() => setDeleteId(null)}>Cancel</Button>
+          <Button type="button" variant="danger" onClick={handleDelete}>Delete</Button>
+        </>
+      )}>
+        This will permanently remove the selected supplier.
+      </Modal>
     </div>
   );
 };
